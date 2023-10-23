@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#  TODO: 
+#
+#  Improve processing speed:
+#    - Use a fixed (pre-generated) tmp_file pool (instead of calling mktemp for every file)
+#
+set -euo pipefail
+
+files=($(echo "$*" | tr "," "\n"))
+
+reformat_json() {
+    file="$1"
+    file_path="$(readlink -f "${file}")"
+    tmp_file="$(mktemp)"
+
+    # echo "Processing: $file_path"
+    
+    # if first line starts with a comment (indicated by //) then we keep it in the formatted file (courtesy to `unpack`)
+    first_line=$(head -1 "${file_path}")
+    if [[ ${first_line} =~ ^\s*//.* ]]; then
+        echo "${first_line}" > "${tmp_file}";
+        # leave 1st line as it is - but format all remaining lines
+        tail +2 "${file_path}" | jq . >> "${tmp_file}"
+    else
+        jq . "${file_path}" > "${tmp_file}"
+    fi
+
+    formatting_exit_code=$?
+    if [ ${formatting_exit_code} -ne 0 ]; then
+        echo "Warning: Failed to re-format file: ${file}. Leaving file as is and continuing with next file."
+    else
+        mv "${tmp_file}" "${file_path}"
+    fi
+}
+
+export -f reformat_json
+
+# If command was calles with some files as argument then format them
+# If command was called without any arguments then recursively format all .json files
+if [ "$#" -eq 0 ]; then
+    fd .json | parallel reformat_json
+else
+    parallel reformat_json ::: "${files[@]}"
+fi
